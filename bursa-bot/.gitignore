@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Generated or downloaded market data, and the live ledger.
+data/prices/
+data/purification_ledger.json
+
+# Never commit broker or notifier credentials.
+config.toml
+.env

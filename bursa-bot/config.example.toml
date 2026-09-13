@@ -1,0 +1,44 @@
+# Copy to config.toml and edit. config.toml is gitignored - keep credentials out of it
+# entirely and pass them through environment variables instead.
+
+[paths]
+data_dir = "data/prices"
+sac_dir = "data/sac_lists"
+calendar_file = "data/calendar/holidays.json"
+ledger_file = "data/purification_ledger.json"
+
+[account]
+initial_cash = 100_000.0
+rebalance = "monthly"   # "monthly" or "weekly"
+
+# Confirm every figure below against your broker's contract note. These defaults
+# approximate a cheap Malaysian online broker and are not a quote.
+[fees]
+brokerage_rate = 0.0010       # 0.10%
+brokerage_min = 8.00          # RM, per contract
+clearing_rate = 0.0003        # 0.03%
+clearing_cap = 1000.0         # RM
+stamp_duty_per_1000 = 1.00    # RM1 per RM1,000 or part thereof
+stamp_duty_cap = 1000.0       # RM
+service_tax_rate = 0.08       # SST on brokerage
+service_tax_on_clearing = true
+
+[limits]
+max_gross_exposure = 0.95     # must stay <= 1.0: no margin, no riba
+max_position_weight = 0.20
+max_adv_participation = 0.05  # cap a position at 5% of average daily traded value
+min_ticket_value = 3000.0     # smaller tickets are eaten by fixed costs
+rebalance_band = 0.02
+max_daily_loss = 0.03         # kill switch: halts new buying
+
+[liquidity]
+lookback_days = 20
+min_avg_daily_value = 250_000.0
+min_price = 0.20
+min_history_days = 250
+
+[trend]
+trend_window = 200
+momentum_window = 120
+top_n = 10
+min_momentum = 0.0
