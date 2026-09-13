@@ -46,11 +46,56 @@ bursabot costs 2.50 4000          # full fee breakdown for one trade
 bursabot calendar                 # is Bursa open, and when does this trade settle
 bursabot backtest                 # run the strategy
 bursabot ledger                   # purification (charity) amounts owed
+bursabot check                    # screen the counters you already hold
+bursabot daily                    # today's recommended orders, as alerts
 ```
 
 The shipped SAC editions and price data are **synthetic samples** (codes `9001`–`9020`,
 which are not real Bursa listings) so everything runs before you download anything.
 Every command warns while unverified data is in place.
+
+## Using it with M+ Online (Malacca Securities)
+
+M+ Online has no public order-placement API, so the bot runs in **alert-only** mode:
+it decides, you place the order. Two things about this broker are worth knowing:
+
+- **M+ Silver is a cash-upfront account**, so you are structurally unable to trade on
+  margin — that matches the bot's no-margin rule instead of fighting it.
+- **Malacca Securities is a window-based Islamic Participating Organisation on Bursa
+  Malaysia-i.** Ask them to open a Shariah-compliant trading account and the brokerage,
+  settlement and cash legs are Shariah-structured too, not just the stock list.
+
+```bash
+cp config.mplus.toml config.toml          # brokerage 0.05% / min RM8 - confirm yours
+cp portfolio.example.json portfolio.json  # then edit in your actual counters
+
+bursabot fetch --symbols 5285,6012,1961   # real history from Yahoo (.KL handled for you)
+bursabot check                            # are my counters on the SAC list?
+bursabot daily                            # what would the strategy do today?
+```
+
+`portfolio.json` is yours to keep in step with your contract notes — the bot cannot see
+your account. Use your **all-in** entry price as `cost_basis` (contract value plus
+brokerage, clearing fee, stamp duty and SST, divided by shares).
+
+### `check` before `daily`
+
+`bursabot check` is useful on day one and carries no strategy risk: it screens the
+counters you already hold against the SAC edition in force and tells you which, if any,
+must be disposed of and what the purification rule means for them.
+
+`bursabot daily` is the strategy, and it needs a **candidate universe**, not just your
+holdings. It ranks names against each other, so fed only the counters you own it can
+tell you what to sell and never what to buy — it warns when the screened universe is
+smaller than `top_n`. Fetch a real candidate list (the FBM Hijrah Shariah constituents
+are a sane starting point) before its buy side means anything.
+
+### Ticket size matters more than the strategy
+
+At M+ Silver rates, round-trip cost is about **0.61% on an RM5,000 ticket** and **0.37%
+on RM20,000**. That is the hurdle every trade must clear before it makes you anything,
+which is why `min_ticket_value` defaults to RM5,000 in the preset and `top_n` to 6.
+A small account holding ten positions pays the RM8 minimum brokerage ten times over.
 
 ## Getting real data in
 

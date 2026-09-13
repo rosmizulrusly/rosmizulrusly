@@ -36,6 +36,15 @@ class AlertOnlyBroker:
     def cash(self) -> float:
         return self._cash
 
+    def adjust_cash(self, delta: float) -> None:
+        """Credit expected sale proceeds within one run.
+
+        Holdings are left untouched - nothing has actually been sold. This exists so
+        that buy recommendations later in the same run are funded by the sells
+        recommended earlier, instead of being refused as unaffordable.
+        """
+        self._cash += delta
+
     def submit(self, order: Order, price: float, day: date) -> Fill:
         costs = compute_costs(price, order.shares, self.fees)
         cash_line = (

@@ -1,0 +1,17 @@
+{
+  "broker": "M+ Online (Malacca Securities)",
+  "updated": "2026-09-13",
+  "cash": 5000.00,
+  "holdings": [
+    {
+      "symbol": "5285",
+      "shares": 2000,
+      "cost_basis": 4.3512
+    },
+    {
+      "symbol": "6012",
+      "shares": 3000,
+      "cost_basis": 3.6104
+    }
+  ]
+}

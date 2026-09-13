@@ -79,6 +79,14 @@ class TestAlertOnlyBroker(unittest.TestCase):
         self.assertIn("rebalance", messages[0])
         self.assertEqual(broker.positions(), {})  # nothing moved
 
+    def test_adjust_cash_funds_later_buys_without_moving_holdings(self):
+        broker = AlertOnlyBroker(
+            positions={"9001": Position("9001", 1_000, 2.0)}, cash=0.0, sink=lambda _: None
+        )
+        broker.adjust_cash(2_500.0)
+        self.assertEqual(broker.cash(), 2_500.0)
+        self.assertEqual(broker.positions()["9001"].shares, 1_000)
+
     def test_sell_alert_quotes_net_proceeds(self):
         messages: list[str] = []
         broker = AlertOnlyBroker(

@@ -10,6 +10,7 @@ venv/
 data/prices/
 data/purification_ledger.json
 
-# Never commit broker or notifier credentials.
+# Never commit broker or notifier credentials, or your real holdings.
 config.toml
+portfolio.json
 .env
