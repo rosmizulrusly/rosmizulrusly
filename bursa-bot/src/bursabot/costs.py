@@ -143,9 +143,34 @@ def compute_costs(
 def round_trip_cost_pct(
     price: float, shares: int, schedule: FeeSchedule | None = None
 ) -> float:
-    """Buy-plus-sell cost as a fraction of contract value, assuming a flat price.
-
-    Use this as a hurdle: a signal whose expected move is smaller than this is noise.
-    """
+    """Buy-plus-sell *fees* as a fraction of contract value, assuming a flat price."""
     one_side = compute_costs(price, shares, schedule)
     return (one_side.total * 2) / one_side.contract_value
+
+
+def spread_cost_pct(price: float) -> float:
+    """One tick as a fraction of price.
+
+    On a penny counter this dominates everything else. At RM0.20 the tick is half a
+    sen, so a single tick is 2.5% of the price - wider than most strategies' entire
+    expected edge, before a sen of brokerage is paid.
+    """
+    return tick_size(price) / price
+
+
+def hurdle_pct(
+    price: float,
+    shares: int,
+    schedule: FeeSchedule | None = None,
+    spread_ticks: float = 1.0,
+) -> float:
+    """Total round-trip drag: fees on both sides plus crossing the spread.
+
+    `spread_ticks` is the spread paid across the *whole* round trip - one tick by
+    default, which assumes you buy at the ask and sell at the bid on a one-tick
+    market. Thin counters are routinely several ticks wide, so raise it for those.
+
+    This is the real hurdle. A strategy whose expected move per trade is smaller
+    than this number loses money no matter how good its signal looks in a backtest.
+    """
+    return round_trip_cost_pct(price, shares, schedule) + spread_ticks * spread_cost_pct(price)

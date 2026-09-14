@@ -90,12 +90,25 @@ tell you what to sell and never what to buy — it warns when the screened unive
 smaller than `top_n`. Fetch a real candidate list (the FBM Hijrah Shariah constituents
 are a sane starting point) before its buy side means anything.
 
-### Ticket size matters more than the strategy
+### The hurdle: price level matters more than ticket size
 
-At M+ Silver rates, round-trip cost is about **0.61% on an RM5,000 ticket** and **0.37%
-on RM20,000**. That is the hurdle every trade must clear before it makes you anything,
-which is why `min_ticket_value` defaults to RM5,000 in the preset and `top_n` to 6.
-A small account holding ten positions pays the RM8 minimum brokerage ten times over.
+`bursabot costs <price> <shares>` reports the full round-trip drag — fees on both
+sides **plus one tick of spread**, which is what actually kills penny counters:
+
+| Position | Tick as % of price | Round-trip hurdle |
+|---|---|---|
+| RM5,000 of a **RM0.20** counter | 2.50% | **3.11%** |
+| RM5,000 of a **RM5.00** counter | 1.00% | 1.61% |
+| RM9,000 of a **RM4.50** counter | 0.44% | 0.93% |
+
+A 20 sen counter has to move **3%+** before the trade makes anything, because half a
+sen is 2.5% of its price. Thin counters quote several ticks wide, so pass
+`--spread-ticks 3` for those and watch the hurdle climb past 8%.
+
+No trend strategy has an edge that survives that. Price level, not cleverness, decides
+whether a systematic approach is viable on a given counter — which is why the preset
+sets `min_price = 0.30` and `min_ticket_value = 5000`, and why ticket size alone
+(the RM8 minimum brokerage) is the smaller half of the problem.
 
 ## Getting real data in
 

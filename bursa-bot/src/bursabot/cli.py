@@ -12,7 +12,7 @@ from pathlib import Path
 from .backtest import BacktestConfig, run_backtest
 from .calendar_my import MYT, CalendarDataMissing, TradingCalendar
 from .config import Settings
-from .costs import compute_costs, round_trip_cost_pct, tick_size
+from .costs import compute_costs, hurdle_pct, round_trip_cost_pct, spread_cost_pct, tick_size
 from .data.store import PriceStore
 from .execution import AlertOnlyBroker, ComplianceError, GuardedBroker
 from .portfolio import Portfolio
@@ -45,7 +45,16 @@ def cmd_costs(args: argparse.Namespace) -> int:
     print(f"  stamp duty      RM{breakdown.stamp_duty:,.2f}")
     print(f"  service tax     RM{breakdown.service_tax:,.2f}")
     print(f"  one side total  RM{breakdown.total:,.2f}")
-    print(f"  round trip      {round_trip_cost_pct(args.price, args.shares, settings.fees):.3%} of value")
+    fees_rt = round_trip_cost_pct(args.price, args.shares, settings.fees)
+    spread = spread_cost_pct(args.price)
+    hurdle = hurdle_pct(args.price, args.shares, settings.fees, args.spread_ticks)
+    print(f"  fees round trip {fees_rt:.3%} of value")
+    print(f"  one tick        {spread:.3%} of price")
+    print(f"  HURDLE          {hurdle:.3%} round trip, including {args.spread_ticks:g} tick of spread")
+    print(
+        f"\n  The counter must move more than {hurdle:.2%} before this trade makes "
+        "anything.\n  Thin counters are several ticks wide - raise --spread-ticks for those."
+    )
     return 0
 
 
@@ -430,6 +439,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("costs", help="show the full fee breakdown for one trade")
     p.add_argument("price", type=float)
     p.add_argument("shares", type=int)
+    p.add_argument("--spread-ticks", type=float, default=1.0,
+                   help="ticks of spread paid across the whole round trip (default 1)")
     p.set_defaults(func=cmd_costs)
 
     p = sub.add_parser("calendar", help="check whether Bursa is open")

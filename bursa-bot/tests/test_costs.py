@@ -5,9 +5,11 @@ from conftest import SRC  # noqa: F401  (path setup)
 from bursabot.costs import (
     FeeSchedule,
     compute_costs,
+    hurdle_pct,
     round_lots,
     round_to_tick,
     round_trip_cost_pct,
+    spread_cost_pct,
     tick_size,
 )
 from bursabot.types import Side
@@ -87,6 +89,35 @@ class TestCosts(unittest.TestCase):
         """The headline reason a Bursa scalping bot loses: fixed costs."""
         self.assertGreater(round_trip_cost_pct(1.00, 1_000), 0.015)
         self.assertLess(round_trip_cost_pct(10.00, 10_000), 0.006)
+
+
+class TestHurdle(unittest.TestCase):
+    def test_one_tick_is_a_huge_fraction_of_a_penny_price(self):
+        self.assertAlmostEqual(spread_cost_pct(0.20), 0.025)
+        self.assertAlmostEqual(spread_cost_pct(5.00), 0.01)
+
+    def test_hurdle_adds_spread_to_fees(self):
+        fees = round_trip_cost_pct(0.20, 10_000)
+        self.assertAlmostEqual(
+            hurdle_pct(0.20, 10_000), fees + spread_cost_pct(0.20), places=9
+        )
+
+    def test_extra_spread_ticks_raise_the_hurdle_proportionally(self):
+        one = hurdle_pct(0.20, 10_000, spread_ticks=1)
+        three = hurdle_pct(0.20, 10_000, spread_ticks=3)
+        self.assertAlmostEqual(three - one, 2 * spread_cost_pct(0.20), places=9)
+
+    def test_penny_counters_face_a_much_higher_hurdle_than_mid_priced_ones(self):
+        """Same ringgit exposure, completely different economics.
+
+        The tick, not the brokerage, is what separates them: half a sen on a 20 sen
+        counter is 2.5% of the price, against 0.44% for two sen on RM4.50.
+        """
+        penny = hurdle_pct(0.20, 25_000)     # RM5,000 of a 20 sen counter
+        mid = hurdle_pct(4.50, 2_000)        # RM9,000 of a RM4.50 counter
+        self.assertGreater(penny, 0.03)
+        self.assertLess(mid, 0.01)
+        self.assertGreater(penny, 3 * mid)
 
 
 if __name__ == "__main__":
