@@ -186,7 +186,7 @@ def run_backtest(
         if _is_rebalance_day(day, last_rebalance, config.rebalance):
             last_rebalance = day
             window = {s: [b for b in bs if b.day <= day] for s, bs in truncated.items()}
-            universe = build_universe(day, window, sac_list, config.liquidity)
+            universe = build_universe(day, window, sac_list, config.liquidity, config.fees)
             targets = target_weights(universe.candidates, window, day, config.trend)
             adv = {
                 s: average_daily_value(window[s], config.liquidity.lookback_days)

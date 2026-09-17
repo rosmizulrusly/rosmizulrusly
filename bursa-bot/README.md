@@ -48,6 +48,8 @@ bursabot backtest                 # run the strategy
 bursabot ledger                   # purification (charity) amounts owed
 bursabot check                    # screen the counters you already hold
 bursabot daily                    # today's recommended orders, as alerts
+bursabot fetch-all                # download every counter on the SAC list (resumable)
+bursabot rank                     # a direction for every counter on the market
 ```
 
 The shipped SAC editions and price data are **synthetic samples** (codes `9001`–`9020`,
@@ -110,6 +112,66 @@ whether a systematic approach is viable on a given counter — which is why the 
 sets `min_price = 0.30` and `min_ticket_value = 5000`, and why ticket size alone
 (the RM8 minimum brokerage) is the smaller half of the problem.
 
+## Screening the whole market
+
+This is the main thing the bot is for. `rank` walks every counter you have data for
+and prints one direction each, with the reason:
+
+```bash
+bursabot fetch-all                 # ~850 counters, resumable; run it once
+bursabot rank                      # or: bursabot rank --all --csv today.csv
+```
+
+```
+as at 2026-06-30, SAC edition 2025-11-28, 20 counters screened
+  BUY 6, HOLD 1, SELL 2, AVOID 11
+
+  code    dir        price      mom     ADV(RM)   hurdle  reason
+  ------------------------------------------------------------------------------
+  9013    BUY        5.857   +34.3%  13,084,315    1.50%  trend up, momentum rank 1 of 10
+  9003    BUY       26.369   +29.2%  65,604,980    1.90%  trend up, momentum rank 2 of 10
+  9010    HOLD       4.436   +17.6%   8,197,900    1.07% *trend up, momentum rank 5 of 10
+  9001    SELL       1.667    -8.5%   4,350,954    1.23% *below its long moving average
+  9004    SELL       4.127        -   8,020,699    1.10% *not on the SAC list - dispose...
+```
+
+`*` marks counters you hold (from `portfolio.json`). `--all` also lists everything
+screened out, so you can see *why* a counter you like was rejected.
+
+### The gates, in order
+
+Each counter falls at the first gate it fails, and that gate is the reason reported:
+
+1. **On the SAC list?** Checked first — a non-compliant counter is not a candidate
+   whatever its chart says. Held and non-compliant → `SELL` with the purification note.
+2. **Enough history?** 250 bars, so the 200-day trend filter means something.
+3. **Above the price floor**, **liquid enough** (average daily value), and
+4. **under the cost hurdle** — round-trip fees plus a tick of spread. This is the gate
+   generic screeners lack and it does most of the work on Bursa.
+5. Only then: **above its long moving average**, and **ranked by momentum**.
+
+A counter you already hold that fails gates 2–4 is reported `HOLD — not a systematic
+position`, not `SELL`. Thin or cheap is a reason not to trade it *with this strategy*;
+it is not a reason to dump something you bought for other reasons. Only gate 1 and a
+broken trend produce a `SELL`.
+
+### Why the cost hurdle rejects so much
+
+Bursa's tick bands keep the round-trip hurdle in a 1.0–1.6% band above about RM0.50,
+whatever the price. Below that it climbs fast:
+
+| Price | One tick | Round-trip hurdle |
+|---|---|---|
+| RM0.10 | 5.00% | **5.61%** |
+| RM0.20 | 2.50% | **3.11%** |
+| RM0.30 | 1.67% | 2.28% |
+| RM0.50 | 1.00% | 1.61% |
+| RM4.50 | 0.44% | 1.06% |
+
+`max_hurdle` defaults to 2.5%, which rejects the hopeless end. No trend rule has an
+edge that survives a 3% round trip, so those counters are screened out before the
+strategy ever looks at them.
+
 ## Getting real data in
 
 **SAC list** — download each edition from the
@@ -141,6 +203,7 @@ Bursa's official trading calendar and flip the flag.
 data/         price ingest and local CSV store
 shariah/      point-in-time SAC lists, screen, forced exits, purification ledger
 universe/     Shariah filter first, then liquidity and history filters
+rank.py       market-wide screen: one direction per counter, with its reason
 signals/      strategy: prices in -> target weights out
 risk/         sizing, exposure caps, ADV participation, kill switch
 costs.py      Bursa fees, tick sizes, board lots

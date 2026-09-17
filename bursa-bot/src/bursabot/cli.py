@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import random
+import time
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -16,6 +18,7 @@ from .costs import compute_costs, hurdle_pct, round_trip_cost_pct, spread_cost_p
 from .data.store import PriceStore
 from .execution import AlertOnlyBroker, ComplianceError, GuardedBroker
 from .portfolio import Portfolio
+from .rank import AVOID, BUY, HOLD, SELL, rank_counters
 from .risk import size_orders
 from .shariah.list_store import SACListStore
 from .shariah.purification import PurificationLedger, purification_due
@@ -431,6 +434,132 @@ def cmd_daily(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fetch_all(args: argparse.Namespace) -> int:
+    """Download every counter on the SAC list in force. Resumable."""
+    from .data.yahoo import fetch_daily_batch  # optional dependency
+
+    settings = Settings.load(args.config)
+    store = PriceStore(settings.data_dir)
+    sac = SACListStore.load(settings.sac_dir)
+    _warn(sac.warnings())
+
+    edition = sac.latest()
+    symbols = sorted(edition.compliant)
+    if args.limit:
+        symbols = symbols[: args.limit]
+
+    if not args.refresh:
+        pending = [s for s in symbols if not store.has(s)]
+        skipped = len(symbols) - len(pending)
+        if skipped:
+            print(f"  skipping {skipped} counters already downloaded (--refresh to redo)")
+        symbols = pending
+
+    if not symbols:
+        print("nothing to fetch")
+        return 0
+
+    start = date.fromisoformat(args.start)
+    end = date.fromisoformat(args.end) if args.end else date.today()
+    failures: dict[str, str] = {}
+    fetched = 0
+
+    print(f"fetching {len(symbols)} counters from the {edition.effective_date} edition")
+    for i in range(0, len(symbols), args.batch):
+        chunk = symbols[i : i + args.batch]
+        try:
+            bars, errors = fetch_daily_batch(chunk, start, end)
+        except Exception as exc:  # noqa: BLE001 - one bad batch must not stop the run
+            for symbol in chunk:
+                failures[symbol] = str(exc)
+            print(f"  batch {i // args.batch + 1}: FAILED ({exc})")
+            continue
+        for symbol, series in bars.items():
+            store.write(symbol, series)
+            fetched += 1
+        failures.update(errors)
+        print(f"  {min(i + args.batch, len(symbols)):>4}/{len(symbols)}  {fetched} stored, {len(failures)} failed")
+        if args.delay and i + args.batch < len(symbols):
+            time.sleep(args.delay)
+
+    if failures:
+        report = Path(settings.data_dir) / "fetch_failures.json"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(json.dumps(failures, indent=2) + "\n")
+        print(f"\n{len(failures)} counters failed; details in {report}")
+        print("  Delisted, suspended and newly listed codes are expected here.")
+    print(f"\n{fetched} counters stored in {settings.data_dir}. Re-run to resume.")
+    return 0
+
+
+def cmd_rank(args: argparse.Namespace) -> int:
+    """Go through every counter and print a direction for each."""
+    settings = Settings.load(args.config)
+    sac = SACListStore.load(settings.sac_dir)
+    prices = PriceStore(settings.data_dir)
+    _warn(sac.warnings())
+
+    stored = prices.symbols()
+    if not stored:
+        print(f"  ERROR: no price CSVs in {settings.data_dir}; run `bursabot fetch-all` first")
+        return 1
+
+    day = date.fromisoformat(args.date) if args.date else max(prices.trading_days(stored))
+    sac_list = sac.as_of(day)
+    history = {s: prices.read(s) for s in stored}
+
+    positions = {}
+    if args.portfolio and Path(args.portfolio).exists():
+        positions = Portfolio.load(args.portfolio).holdings
+
+    verdicts = rank_counters(
+        history, sac_list, day,
+        positions=positions, rules=settings.liquidity,
+        trend=settings.trend, fees=settings.fees,
+    )
+
+    shown = verdicts if args.all else [v for v in verdicts if v.direction != AVOID]
+    counts: dict[str, int] = {}
+    for verdict in verdicts:
+        counts[verdict.direction] = counts.get(verdict.direction, 0) + 1
+
+    print(f"as at {day}, SAC edition {sac_list.effective_date}, {len(verdicts)} counters screened")
+    print("  " + ", ".join(f"{d} {counts[d]}" for d in (BUY, HOLD, "WATCH", SELL, AVOID) if d in counts))
+    print()
+    print(f"  {'code':<8}{'dir':<7}{'price':>9}{'mom':>9}{'ADV(RM)':>12}{'hurdle':>9}  reason")
+    print("  " + "-" * 96)
+    for verdict in shown:
+        mom = f"{verdict.momentum_pct:+.1%}" if verdict.momentum_pct is not None else "-"
+        adv = f"{verdict.adv:,.0f}" if verdict.adv else "-"
+        hurdle = f"{verdict.hurdle:.2%}" if verdict.hurdle else "-"
+        held = "*" if verdict.held_shares else " "
+        print(
+            f"  {verdict.symbol:<8}{verdict.direction:<7}{verdict.price:>9.3f}{mom:>9}"
+            f"{adv:>12}{hurdle:>9} {held}{verdict.reason}"
+        )
+
+    if not args.all and counts.get(AVOID):
+        print(f"\n  {counts[AVOID]} counters screened out; --all to list them")
+    print("\n  * = currently held.  Directions are the strategy's, not advice.")
+    print("  Nothing here accounts for news, results or anything the chart cannot see.")
+
+    if args.csv:
+        with open(args.csv, "w", newline="") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(
+                ["code", "direction", "price", "momentum", "adv", "hurdle", "held", "reason"]
+            )
+            for verdict in verdicts:
+                writer.writerow([
+                    verdict.symbol, verdict.direction, verdict.price,
+                    verdict.momentum_pct if verdict.momentum_pct is not None else "",
+                    round(verdict.adv, 2), round(verdict.hurdle, 5),
+                    verdict.held_shares, verdict.reason,
+                ])
+        print(f"  wrote {args.csv}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bursabot", description=BANNER)
     parser.add_argument("--config", default="config.toml", help="path to config.toml")
@@ -475,6 +604,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--start", default="2018-01-01")
     p.add_argument("--end")
     p.set_defaults(func=cmd_fetch)
+
+    p = sub.add_parser("fetch-all", help="download every counter on the SAC list (resumable)")
+    p.add_argument("--start", default="2018-01-01")
+    p.add_argument("--end")
+    p.add_argument("--batch", type=int, default=40, help="counters per request")
+    p.add_argument("--delay", type=float, default=1.0, help="seconds between batches")
+    p.add_argument("--limit", type=int, help="stop after this many counters (for a trial run)")
+    p.add_argument("--refresh", action="store_true", help="re-download counters already stored")
+    p.set_defaults(func=cmd_fetch_all)
+
+    p = sub.add_parser("rank", help="go through every counter and print a direction")
+    p.add_argument("--portfolio", default="portfolio.json")
+    p.add_argument("--date")
+    p.add_argument("--all", action="store_true", help="include screened-out counters")
+    p.add_argument("--csv", help="also write the full table to this file")
+    p.set_defaults(func=cmd_rank)
 
     p = sub.add_parser("check", help="screen the counters you hold against the SAC list")
     p.add_argument("--portfolio", default="portfolio.json")

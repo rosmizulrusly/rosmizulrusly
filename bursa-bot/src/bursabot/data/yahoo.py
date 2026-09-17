@@ -60,3 +60,65 @@ def fetch_daily(symbol: str, start: date, end: date) -> list[Bar]:
             )
         )
     return bars
+
+
+def fetch_daily_batch(
+    symbols: list[str], start: date, end: date
+) -> tuple[dict[str, list[Bar]], dict[str, str]]:
+    """Download several counters in one request.
+
+    Returns (bars by symbol, errors by symbol). Counters that come back empty are
+    reported rather than raised, so one delisted or mistyped code cannot abort a
+    market-wide download.
+    """
+    try:
+        import yfinance  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover - depends on optional extra
+        raise ImportError(
+            "yfinance is not installed; run `pip install -e '.[data]'`"
+        ) from exc
+
+    tickers = {to_yahoo_ticker(s): s.upper() for s in symbols}
+    frame = yfinance.download(
+        list(tickers),
+        start=start.isoformat(),
+        end=end.isoformat(),
+        auto_adjust=True,
+        progress=False,
+        group_by="ticker",
+        threads=True,
+    )
+
+    bars: dict[str, list[Bar]] = {}
+    errors: dict[str, str] = {}
+    for ticker, symbol in tickers.items():
+        try:
+            sub = frame[ticker] if getattr(frame.columns, "nlevels", 1) > 1 else frame
+            sub = sub.dropna(how="all")
+        except KeyError:
+            errors[symbol] = "no data returned"
+            continue
+        if sub.empty:
+            errors[symbol] = "no data returned"
+            continue
+        rows: list[Bar] = []
+        for index, row in sub.iterrows():
+            try:
+                rows.append(
+                    Bar(
+                        symbol=symbol,
+                        day=index.date(),
+                        open=float(row["Open"]),
+                        high=float(row["High"]),
+                        low=float(row["Low"]),
+                        close=float(row["Close"]),
+                        volume=int(row["Volume"]),
+                    )
+                )
+            except (ValueError, TypeError):
+                continue  # a single bad bar must not discard the whole series
+        if rows:
+            bars[symbol] = rows
+        else:
+            errors[symbol] = "no usable bars"
+    return bars, errors
